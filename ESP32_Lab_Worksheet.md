@@ -383,8 +383,28 @@ Memory analysis complete!
 ### คำถามวิเคราะห์ (ง่าย)
 
 1. **Memory Types**: SRAM และ Flash Memory ใช้เก็บข้อมูลประเภทไหน?
+    SRAM - ตัวแปรชั่วคราวตอนรันโปรแกรม
+    Flash - โปรแกรมและข้อมูลถาวร
 2. **Address Ranges**: ตัวแปรแต่ละประเภทอยู่ใน address range ไหน?
+    IRAM: 0x40080000 – 0x400A0000
+    DRAM: 0x3FFB0000 – 0x3FFFFFFF
+    Flash (mapped): 0x3F400000 – 0x3F800000
 3. **Memory Usage**: ESP32 มี memory ทั้งหมดเท่าไร และใช้ไปเท่าไร?
+Flash Code            |        79646 |          |                |               |
+|    .text              |        79646 |          |                |               |
+| IRAM                  |        53167 |    40.56 |          77905 |        131072 |
+|    .text              |        52139 |    39.78 |                |               |
+|    .vectors           |         1028 |     0.78 |                |               |
+| Flash Data            |        41080 |          |                |               |
+|    .rodata            |        39800 |          |                |               |
+|    .dram              |         1024 |          |                |               |
+|    .appdesc           |          256 |          |                |               |
+| DRAM                  |        11432 |     6.33 |         169304 |        180736 |
+|    .data              |         9176 |     5.08 |                |               |
+|    .bss               |         2256 |     1.25 |                |               |
+| RTC SLOW              |           56 |     0.68 |           8136 |          8192 |
+|    .force_slow        |           32 |     0.39 |                |               |
+|    .rtc_slow_reserved |           24 |     0.29 |                |               
 
 ---
 
@@ -568,6 +588,7 @@ void app_main() {
 ```
 
 ### การบันทึกผลการทดลอง
+![alt text](image-6.png)
 
 **Table 3.1: Cache Performance Results**
 
@@ -591,8 +612,18 @@ void app_main() {
 ### คำถามวิเคราะห์
 
 1. **Cache Efficiency**: ทำไม sequential access เร็วกว่า random access?
+    Sequential access มี “spatial locality” สูง ทำให้ cache ทำงานมีประสิทธิภาพกว่า
+    Random access ไม่มี locality → cache เสียประสิทธิภาพ
 2. **Memory Hierarchy**: ความแตกต่างระหว่าง internal SRAM และ external memory คืออะไร?
+    คุณสมบัติ	Internal SRAM	    External Memory
+    ตำแหน่ง	    อยู่ในชิป	            อยู่นอกชิป
+    ความเร็ว	สูง (Low latency)	    ต่ำ (High latency)
+    ใช้สำหรับ	โค้ดหลัก, ตัวแปรสำคัญ    ข้อมูลขนาดใหญ่, buffer
+    Cache Support	เต็มที่	             จำกัด / partial
 3. **Stride Patterns**: stride size ส่งผลต่อ performance อย่างไร?
+    stride เล็ก → ใช้ประโยชน์จาก cache ได้มาก (แต่ access เยอะ)
+    stride ใหญ่ → access น้อยลง (แต่ cache reuse น้อย)
+
 
 ---
 
@@ -807,14 +838,14 @@ void app_main() {
 }
 ```
 
-**หมายเหตุ**
+    **หมายเหตุ**
 ในกรณีอยู่นอก docker สามารถใช้คำสั่งนี้
 ```bash
     docker exec -it esp32-lab5 bash -c "source /opt/esp/idf/export.sh && cd dual-core-test && idf.py build"
 ```
 
 ### การบันทึกผลการทดลอง
-
+![alt text](image-7.png)
 **Table 4.1: Dual-Core Performance Summary**
 
 | Metric | Core 0 (PRO_CPU) | Core 1 (APP_CPU) |
@@ -836,8 +867,18 @@ void app_main() {
 ### คำถามวิเคราะห์
 
 1. **Core Specialization**: จากผลการทดลอง core ไหนเหมาะกับงานประเภทใด?
+    Core 0 (PRO_CPU) — เหมาะกับ:
+งานสั้น ๆ, บ่อย ๆ, latency ต่ำ เช่น I/O, network callbacks, event handling, producer tasks
+เห็นได้จากการส่งข้อความถี่ (iterations ต่ำกว่า 200 μs)
+    Core 1 (APP_CPU) — เหมาะกับ:
+งานที่ต้องคำนวณหนักหรือใช้เวลาดำเนินการนาน เช่น heavy compute, data processing, DSP, blocking workloads
+จาก log: Core1 ใช้เวลาเฉลี่ย ~11 ms ต่อ iteration → เหมาะเป็น consumer/processor ที่ทำงานหนัก
 2. **Communication Overhead**: inter-core communication มี overhead เท่าไร?
+    Observed end-to-end (จาก log)	7–29 ms	รวมการประมวลผลบน Core1
+    Pure notify / internal SRAM	~10–50 μs	ถ้าไม่มีงานหนักกีดกัน
+    Queue via external PSRAM	~200 μs – few ms	ขึ้นกับ external memory latency
 3. **Load Balancing**: การกระจายงานระหว่าง cores มีประสิทธิภาพหรือไม่?
+    มีประสิทธิภาพ ถ้าแยกหน้าที่ให้แต่ละ core ทำงานกับหน่วยความจำคนละส่วน
 
 ---
 
